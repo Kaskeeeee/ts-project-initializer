@@ -1,0 +1,24 @@
+# Project template
+
+ProjectDirs:
+  - lib
+  - src
+  - src/types
+  - src/types/enumerations
+  - util
+  - test
+
+DevDependencies:
+  - "@types/node"
+  - typescript
+  - ts-node
+  - prettier
+  - eslint
+  - eslint-config-prettier
+  - eslint-plugin-prettier
+
+GitIgnore:
+  - node_modules
+#PeerDependencies:
+#TsConfigJson:
+#...
