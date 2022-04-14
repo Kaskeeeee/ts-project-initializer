@@ -1,5 +1,4 @@
 # Project template
-
 ProjectDirs:
   - lib
   - src
@@ -17,6 +16,9 @@ DevDependencies:
   - eslint
   - eslint-config-prettier
   - eslint-plugin-prettier
+
+Dependencies:
+  - dayjs
 
 GitIgnore:
   - node_modules

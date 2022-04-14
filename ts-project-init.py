@@ -48,19 +48,27 @@ class TemplateKey:
     TsConfig = 'TsConfig'
     Eslint = 'Eslint'
     EslintIgnore = 'EslintIgnore'
+    Npm = 'Npm'
+
 
 # NPM class
 class Npm:
     @staticmethod
-    def install(module, dev=False, batch=False):
+    def install(module, dev=False, g=False):
+        if module is None:
+            return
+
         commands = ['npm', 'install']
+        
         if dev:
             commands += ['--save-dev']
+        elif g:
+            commands += ['-g']
      
-        if batch:
-            commands += module
-        else:
-            commands += [module]
+        if isinstance(module, str):
+            module = [module]
+        
+        commands += module
 
         cmd = ' '.join(commands)
         Log.info('install', f'running {cmd} in {os.getcwd()}')
@@ -75,11 +83,20 @@ class Npm:
 
     @staticmethod
     def exec(option):
-        cmd = f'npx {option}'
+        cmd = ' '.join(['npx', option])
         Log.info('npx', f'running {cmd} in {os.getcwd()}')
         subprocess.check_call(cmd, shell=True)
 
-def comment_remover(text):
+    @staticmethod
+    def update_npm():
+        Npm.install('npm@latest', g=True)
+
+class OptionMapper:
+    mappers = {
+        'latest': { 'handler': Npm.update_npm, 'args': [] }
+    }
+
+def remove_comments(text):
     def replacer(match):
         s = match.group(0)
         if s.startswith('/'):
@@ -92,6 +109,12 @@ def comment_remover(text):
     )
     return re.sub(pattern, replacer, text)
 
+def write_ignore_file(filename, ignores_list):
+    Log.info('Ignore file', f'writing ignore file list to {filename}')
+    with open(filename, 'w') as ignore_file:
+        ignores = '\n'.join(ignores_list)
+        ignore_file.write(ignores) 
+
 def init_project(args):
     Log.info('Template', f'opening {args.template}')
     try:
@@ -100,27 +123,26 @@ def init_project(args):
     except:
         Log.die('Template', f'There was an error opening {args.template}')
 
-    
     os.makedirs(args.dst_dir, exist_ok=True)
     os.chdir(args.dst_dir)
-    Log.info('Initialization', 'running npm init')
-    Npm.init()
-        
-    if TemplateKey.DevDependencies in config.keys():
-        Npm.install(config[TemplateKey.DevDependencies], dev=True, batch=True)
+    
+    for key in config.get(TemplateKey.Npm, []):
+        mapper = OptionMapper.mappers[key]
+        mapper['handler'](*mapper['args'])
 
-    if TemplateKey.Dependencies in config.keys():
-        Npm.install(config[TemplateKey.Dependencies], batch=True)
+    Npm.init()
+    Npm.install(config.get(TemplateKey.DevDependencies, None), dev=True)
+    Npm.install(config.get(TemplateKey.Dependencies, None))
 
     if 'tsc' in config.get(TemplateKey.DevDependencies, []):
         Npm.exec('tsc --init')
         if TemplateKey.TsConfig in config.keys():
             with open('tsconfig.json') as ts_config:
-                json_data = comment_remover(ts_config.read())
+                json_data = remove_comments(ts_config.read())
             
             data = json.loads(json_data)
 
-            Log.info('TSConfig', f'{config[TemplateKey.TsConfig]}') 
+            Log.info('TSConfig', config[TemplateKey.TsConfig]) 
             for key, value in config[TemplateKey.TsConfig].items():
                     data['compilerOptions'][key] = value
                 
@@ -132,21 +154,17 @@ def init_project(args):
             eslint.write(yaml.dump(config[TemplateKey.Eslint]))
     
     if TemplateKey.EslintIgnore in config.keys():
-        with open('.eslintignore', 'w') as eslint_ignore:
-            for line in config[TemplateKey.EslintIgnore]:
-                eslint_ignore.write(line + '\n')   
+        write_ignore_file('.eslintignore', config[TemplateKey.EslintIgnore])
+    
+    if TemplateKey.GitIgnore in config.keys():
+        write_ignore_file('.gitignore', config[TemplateKey.GitIgnore])
     
     if TemplateKey.ProjectDirs in config.keys():
-        Log.info('Creating directories', f"{config['ProjectDirs']}")
+        Log.info('Creating directories', config[TemplateKey.ProjectDirs])
         for dir in config[TemplateKey.ProjectDirs]:
             path = os.path.normpath(os.path.normcase(dir))
             os.makedirs(path, exist_ok=True)
     
-    if TemplateKey.GitIgnore in config.keys():
-        Log.info('git', 'creating .gitignore')
-        with open('.gitignore', 'w') as git_ign:
-            for line in config[TemplateKey.GitIgnore]:
-                git_ign.write(line + '\n')
 
 
 if __name__ == '__main__':
