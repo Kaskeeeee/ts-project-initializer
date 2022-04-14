@@ -5,11 +5,16 @@ import os
 import subprocess
 import yaml
 import sys
+import re
+import json
 
+# Arguments section
 parser = argparse.ArgumentParser()
 parser.add_argument('template', help='yaml template describing the project',
     default='template.yaml')
+parser.add_argument('--dst-dir', help='the destination directory', default='.')
 
+# Logger class
 class AnsiColor:
     Black = '\u001b[30m'
     Red = '\u001b[31m'
@@ -34,6 +39,17 @@ class Log:
     def die(name, msg):
         sys.exit(f'{AnsiColor.Red}[{name}] {msg}{AnsiColor.Reset}')
 
+# Template keys
+class TemplateKey:
+    DevDependencies = 'DevDependencies'
+    Dependencies = 'Dependencies'
+    ProjectDirs = 'ProjectDirs'
+    GitIgnore = 'GitIgnore'
+    TsConfig = 'TsConfig'
+    Eslint = 'Eslint'
+    EslintIgnore = 'EslintIgnore'
+
+# NPM class
 class Npm:
     @staticmethod
     def install(module, dev=False, batch=False):
@@ -41,40 +57,96 @@ class Npm:
         if dev:
             commands += ['--save-dev']
      
-        commands += [module] if not batch else module
-
+        if batch:
+            commands += module
+        else:
+            commands += [module]
 
         cmd = ' '.join(commands)
-        Log.info('build', f'running {cmd} in {os.getcwd()}')
+        Log.info('install', f'running {cmd} in {os.getcwd()}')
         subprocess.check_call(cmd, shell=True)
 
     @staticmethod
     def init(fast_init=True):
         cmd = ' '.join(['npm', 'init']
             + ['-y'] if fast_init else [])
-        Log.info('build', f'running {cmd} in {os.getcwd()}')
+        Log.info('init', f'running {cmd} in {os.getcwd()}')
         subprocess.check_call(cmd, shell=True)
 
+    @staticmethod
+    def exec(option):
+        cmd = f'npx {option}'
+        Log.info('npx', f'running {cmd} in {os.getcwd()}')
+        subprocess.check_call(cmd, shell=True)
+
+def comment_remover(text):
+    def replacer(match):
+        s = match.group(0)
+        if s.startswith('/'):
+            return " "
+        else:
+            return s
+    pattern = re.compile(
+        r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
+        re.DOTALL | re.MULTILINE
+    )
+    return re.sub(pattern, replacer, text)
 
 def init_project(args):
+    Log.info('Template', f'opening {args.template}')
+    try:
+        with open(args.template, 'r') as template:
+            config = yaml.safe_load(template)
+    except:
+        Log.die('Template', f'There was an error opening {args.template}')
+
+    
+    os.makedirs(args.dst_dir, exist_ok=True)
+    os.chdir(args.dst_dir)
     Log.info('Initialization', 'running npm init')
     Npm.init()
-    with open(args.template, 'r') as template:
-        config = yaml.safe_load(template)
+        
+    if TemplateKey.DevDependencies in config.keys():
+        Npm.install(config[TemplateKey.DevDependencies], dev=True, batch=True)
+
+    if TemplateKey.Dependencies in config.keys():
+        Npm.install(config[TemplateKey.Dependencies], batch=True)
+
+    if 'tsc' in config.get(TemplateKey.DevDependencies, []):
+        Npm.exec('tsc --init')
+        if TemplateKey.TsConfig in config.keys():
+            with open('tsconfig.json') as ts_config:
+                json_data = comment_remover(ts_config.read())
+            
+            data = json.loads(json_data)
+
+            Log.info('TSConfig', f'{config[TemplateKey.TsConfig]}') 
+            for key, value in config[TemplateKey.TsConfig].items():
+                    data['compilerOptions'][key] = value
+                
+            with open('tsconfig.json', 'w') as ts_config:
+                ts_config.write(json.dumps(data))
+
+    if TemplateKey.Eslint in config.keys():
+        with open('.eslintrc.yaml', 'w') as eslint:
+            eslint.write(yaml.dump(config[TemplateKey.Eslint]))
     
-    Log.info('Dev deps', 'installing dev deps')
-    dev_deps = [dev_dep for dev_dep in config['DevDependencies']]
-    Npm.install(dev_deps, dev=True, batch=True)
+    if TemplateKey.EslintIgnore in config.keys():
+        with open('.eslintignore', 'w') as eslint_ignore:
+            for line in config[TemplateKey.EslintIgnore]:
+                eslint_ignore.write(line + '\n')   
     
-    Log.info('Creating directories', f"{config['ProjectDirs']}")
-    for dir in config['ProjectDirs']:
-        norm = os.path.normpath(dir)
-        os.makedirs(norm, exist_ok=True)
+    if TemplateKey.ProjectDirs in config.keys():
+        Log.info('Creating directories', f"{config['ProjectDirs']}")
+        for dir in config[TemplateKey.ProjectDirs]:
+            path = os.path.normpath(os.path.normcase(dir))
+            os.makedirs(path, exist_ok=True)
     
-    if 'GitIgnore' in config.keys():
+    if TemplateKey.GitIgnore in config.keys():
         Log.info('git', 'creating .gitignore')
         with open('.gitignore', 'w') as git_ign:
-            git_ign.writelines(config['GitIgnore'])
+            for line in config[TemplateKey.GitIgnore]:
+                git_ign.write(line + '\n')
 
 
 if __name__ == '__main__':
